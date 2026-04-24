@@ -1,0 +1,13 @@
+# Credentials
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# llama.cpp server logs and PIDs (created by start_servers.sh)
+logs/
+*.pid
