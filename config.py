@@ -100,7 +100,7 @@ AGENT_CONFIGS = [
             "Keep responses under 250 words."
         ),
         base_url=OPENROUTER_BASE,
-        model="google/gemma-4-31b-it",
+        model="google/gemma-4-26b-a4b-it",
         api_key=OPENROUTER_API_KEY,
         color=0xE67E22,    # construction orange
         avatar_url=None,

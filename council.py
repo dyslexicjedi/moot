@@ -122,16 +122,19 @@ async def _chairman_evaluate(
         prompt += (
             "This is the final round. Provide a concluding summary: "
             "what consensus was reached, what tensions remain, and the key takeaway. "
-            "Start your message with CONCLUDE:"
+            "Your response MUST begin with the literal word CONCLUDE: — no other text before it."
         )
     else:
         prompt += (
             "Assess the discussion. Has meaningful consensus been reached, or "
             "is more discussion valuable?\n"
-            "If you want another round, start with CONTINUE: and state what "
-            "specific question or angle the next round should address.\n"
-            "If the discussion has reached a solid conclusion, start with "
-            "CONCLUDE: and summarize the consensus and key takeaway."
+            "Your response MUST begin with exactly one of these two prefixes — "
+            "no synthesis, preamble, or other text before it:\n"
+            "  CONTINUE: — if you want another round; then state the specific question "
+            "or angle for that round.\n"
+            "  CONCLUDE: — if the discussion has reached a solid conclusion; then "
+            "summarize the consensus and key takeaway.\n"
+            "The very first characters of your response must be CONTINUE: or CONCLUDE:."
         )
 
     messages = [
@@ -140,12 +143,14 @@ async def _chairman_evaluate(
     ]
     text = await _chat(client, CHAIRMAN_CONFIG, messages, CHAIRMAN_MAX_TOKENS, temperature=0.3)
 
-    if text.upper().startswith("CONTINUE:"):
-        body = text[len("CONTINUE:"):].strip()
+    # Strip leading markdown/whitespace before checking the directive prefix.
+    # Bob sometimes wraps the prefix in bold (**CONTINUE:**) or adds a blank line first.
+    cleaned = re.sub(r'^[\s*_`#]+', '', text)
+    if re.match(r'CONTINUE:', cleaned, re.IGNORECASE):
+        body = re.sub(r'^CONTINUE:\s*', '', cleaned, flags=re.IGNORECASE).strip()
         return True, body
     else:
-        # Strip CONCLUDE: prefix if present
-        body = re.sub(r"^CONCLUDE:\s*", "", text, flags=re.IGNORECASE).strip()
+        body = re.sub(r'^[\s*_`#]*CONCLUDE:\s*', '', text, flags=re.IGNORECASE).strip()
         return False, body
 
 
