@@ -1,4 +1,4 @@
-# Council AI
+# Moot
 
 A multi-agent Discord bot where a council of AI replicants — named after characters from Dennis E. Taylor's *Bobiverse* series — discuss topics, debate ideas, and reach a consensus. Post a topic or drop a meme in a private Discord channel and watch Bob, Riker, Bill, Milo, and Homer hash it out. Bob chairs the moot and calls it closed with a **BLAAATTT**.
 
