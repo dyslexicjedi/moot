@@ -238,6 +238,10 @@ async def on_message(message: discord.Message) -> None:
     if message.content.startswith("!"):
         return
 
+    # Only trigger a moot when the message contains !moot
+    if "!moot" not in message.content:
+        return
+
     if _active_discussion:
         await message.reply(
             "A moot is already in progress. "
@@ -247,7 +251,7 @@ async def on_message(message: discord.Message) -> None:
         return
 
     # Build topic from message content + any attachments
-    raw = message.content.strip()
+    raw = message.content.replace("!moot", "").strip()
     context_note = ""
     url, topic = _extract_url(raw)
 
