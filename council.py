@@ -9,6 +9,8 @@ import json
 import re
 from typing import AsyncGenerator, List, Dict, Optional, Tuple
 
+_ARTICLE_TRUNCATE = 12_000  # chars — keeps Bob's context reasonable
+
 from openai import AsyncOpenAI
 
 from config import AgentConfig, AgentConfig, AGENT_CONFIGS, CHAIRMAN_CONFIG, MAX_ROUNDS, MAX_TOKENS, CHAIRMAN_MAX_TOKENS
@@ -152,6 +154,24 @@ async def _chairman_evaluate(
     else:
         body = re.sub(r'^[\s*_`#]*CONCLUDE:\s*', '', text, flags=re.IGNORECASE).strip()
         return False, body
+
+
+async def summarize_article(raw_text: str) -> str:
+    """Bob reads raw article text and returns a briefing for the moot."""
+    client = _make_client(CHAIRMAN_CONFIG)
+    truncated = raw_text[:_ARTICLE_TRUNCATE]
+    if len(raw_text) > _ARTICLE_TRUNCATE:
+        truncated += "\n\n[... article truncated ...]"
+    messages = [
+        {"role": "system", "content": CHAIRMAN_CONFIG.system_prompt},
+        {"role": "user", "content": (
+            "Before we open the moot, read this article and brief the replicants. "
+            "Hit the key points, the main argument, and anything worth debating. "
+            "Under 300 words — we'll dig in once the moot starts.\n\n"
+            f"ARTICLE:\n{truncated}"
+        )},
+    ]
+    return await _chat(client, CHAIRMAN_CONFIG, messages, 450, temperature=0.3)
 
 
 async def run_discussion(

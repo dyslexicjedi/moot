@@ -7,7 +7,9 @@ appears as a distinct user in Discord.
 import asyncio
 import logging
 import os
+import re
 import sys
+from html.parser import HTMLParser
 from typing import Optional
 
 import aiohttp
@@ -25,9 +27,64 @@ from config import (
     WEBHOOK_URLS,
     AgentConfig,
 )
-from council import DISCUSSION_DONE, run_discussion
+from council import DISCUSSION_DONE, run_discussion, summarize_article
 
 load_dotenv()
+
+# Matches bare URLs and Discord's <url> embed-suppression format.
+# Group 1 is always the clean URL without surrounding <>.
+_URL_RE = re.compile(r'<?(https?://[^\s>]+)>?')
+
+
+class _TextExtractor(HTMLParser):
+    _SKIP = frozenset(('script', 'style', 'nav', 'header', 'footer', 'aside', 'noscript'))
+    _BLOCK = frozenset(('p', 'br', 'div', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr', 'blockquote'))
+
+    def __init__(self):
+        super().__init__()
+        self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP:
+            self._skip_depth = max(0, self._skip_depth - 1)
+        if tag in self._BLOCK:
+            self._parts.append('\n')
+
+    def handle_data(self, data):
+        if self._skip_depth == 0:
+            self._parts.append(data)
+
+    def get_text(self) -> str:
+        text = ''.join(self._parts)
+        return re.sub(r'[ \t]+', ' ', re.sub(r'\n{3,}', '\n\n', text)).strip()
+
+
+def _extract_url(text: str) -> tuple[Optional[str], str]:
+    """Return (url, remaining_topic) from a message that may contain a URL."""
+    m = _URL_RE.search(text)
+    if not m:
+        return None, text
+    url = m.group(1)
+    remaining = (text[:m.start()] + text[m.end():]).strip()
+    return url, remaining or "Discuss this article."
+
+
+async def _fetch_article_text(session: aiohttp.ClientSession, url: str) -> str:
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; MootBot/1.0)"}
+    timeout = aiohttp.ClientTimeout(total=20)
+    async with session.get(url, headers=headers, timeout=timeout) as resp:
+        resp.raise_for_status()
+        html = await resp.text()
+    extractor = _TextExtractor()
+    extractor.feed(html)
+    return extractor.get_text()
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -108,12 +165,28 @@ async def run_council_discussion(
     topic: str,
     trigger_user_id: int,
     context_note: str = "",
+    url: Optional[str] = None,
 ) -> None:
     global _active_discussion
     _active_discussion = True
 
     try:
         async with aiohttp.ClientSession() as session:
+            if url:
+                await send_agent_message(
+                    session, channel, CHAIRMAN_CONFIG,
+                    f"*Stand by — pulling up the article...*"
+                )
+                try:
+                    raw_text = await _fetch_article_text(session, url)
+                    summary = await summarize_article(raw_text)
+                    await send_agent_message(session, channel, CHAIRMAN_CONFIG, summary)
+                    await asyncio.sleep(INTER_MESSAGE_DELAY)
+                    context_note = f"Bob has pre-read the article and briefed the replicants:\n\n{summary}"
+                except Exception as exc:
+                    log.error("Article fetch/summarize failed: %s", exc)
+                    await channel.send(f"⚠️ Couldn't read the article: `{exc}` — proceeding without it.")
+
             async for agent, text in run_discussion(topic, context_note):
                 if text == DISCUSSION_DONE:
                     break
@@ -174,8 +247,9 @@ async def on_message(message: discord.Message) -> None:
         return
 
     # Build topic from message content + any attachments
-    topic = message.content.strip()
+    raw = message.content.strip()
     context_note = ""
+    url, topic = _extract_url(raw)
 
     if message.attachments:
         image_urls = [a.url for a in message.attachments if _is_image(a.filename)]
@@ -184,12 +258,12 @@ async def on_message(message: discord.Message) -> None:
             if not topic:
                 topic = "Discuss the attached image."
 
-    if not topic:
-        return  # Empty message with no attachments — ignore
+    if not topic and not url:
+        return  # Empty message with no content — ignore
 
     await message.add_reaction("⏳")
     asyncio.create_task(
-        run_council_discussion(message.channel, topic, message.author.id, context_note)
+        run_council_discussion(message.channel, topic, message.author.id, context_note, url=url)
     )
 
 
@@ -221,9 +295,10 @@ async def force_discuss(ctx: commands.Context, *, topic: str) -> None:
         await ctx.send("A moot is already running. Use `!stop` first.")
         return
 
+    url, topic = _extract_url(topic)
     await ctx.message.add_reaction("⏳")
     asyncio.create_task(
-        run_council_discussion(ctx.channel, topic, ctx.author.id)
+        run_council_discussion(ctx.channel, topic, ctx.author.id, url=url)
     )
 
 
