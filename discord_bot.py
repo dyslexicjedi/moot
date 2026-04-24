@@ -6,7 +6,6 @@ appears as a distinct user in Discord.
 
 import asyncio
 import logging
-import os
 import re
 import sys
 from html.parser import HTMLParser
@@ -22,7 +21,6 @@ from config import (
     CHAIRMAN_CONFIG,
     DISCORD_CHANNEL_ID,
     DISCORD_TOKEN,
-    DISCORD_USER_ID,
     INTER_MESSAGE_DELAY,
     WEBHOOK_URLS,
     AgentConfig,
@@ -175,7 +173,7 @@ async def run_council_discussion(
             if url:
                 await send_agent_message(
                     session, channel, CHAIRMAN_CONFIG,
-                    f"*Stand by — pulling up the article...*"
+                    "*Stand by — pulling up the article...*"
                 )
                 try:
                     raw_text = await _fetch_article_text(session, url)

@@ -5,15 +5,14 @@ any other interface) can handle delivery however it wants.
 """
 
 import asyncio
-import json
 import re
-from typing import AsyncGenerator, List, Dict, Optional, Tuple
-
-_ARTICLE_TRUNCATE = 12_000  # chars — keeps Bob's context reasonable
+from typing import AsyncGenerator, List, Dict, Tuple
 
 from openai import AsyncOpenAI
 
-from config import AgentConfig, AgentConfig, AGENT_CONFIGS, CHAIRMAN_CONFIG, MAX_ROUNDS, MAX_TOKENS, CHAIRMAN_MAX_TOKENS
+from config import AgentConfig, AGENT_CONFIGS, CHAIRMAN_CONFIG, MAX_ROUNDS, MAX_TOKENS, CHAIRMAN_MAX_TOKENS
+
+_ARTICLE_TRUNCATE = 12_000  # chars — keeps Bob's context reasonable
 
 
 # Sentinel: signals the caller that the discussion is fully done
