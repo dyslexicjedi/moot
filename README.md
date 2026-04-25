@@ -112,6 +112,10 @@ You'll see *"We are Legion. We are Bob."* in your Discord channel when it's read
 | `!stop` | Cancel a moot in progress |
 | `!status` | Guppy reports whether a moot is running |
 | `!replicants` | List active replicants and their endpoints (alias: `!agents`) |
+| `!lookup <query>` | Search past moots and indexed docs, Bob summarizes findings |
+| `!index <url\|text>` | Index an article URL or raw text for future lookups |
+| `!memory <fact>` | Save a personal note or fact to remember |
+| `!stats` | Show knowledge base statistics |
 
 Or just post anything in the channel — any message automatically starts a moot.
 
@@ -122,8 +126,10 @@ council-ai/
 ├── config.py           # Agent personalities, model endpoints, Discord settings
 ├── council.py          # Discussion orchestration (the moot engine)
 ├── discord_bot.py      # Discord bot and command handling
+├── vector_store.py     # ChromaDB knowledge base with semantic search
 ├── setup_webhooks.py   # One-time webhook creation
 ├── start_servers.sh    # Launch local llama.cpp server instances
+├── chroma_db/          # Persistent vector database (auto-created)
 ├── requirements.txt
 └── .env.example
 ```
@@ -136,3 +142,57 @@ Any OpenAI-compatible API works. Constants for common providers are in `config.p
 - **Together AI** — fast open-weight inference
 - **Groq** — very fast, generous free tier
 - **OpenAI** — GPT-4o, o1, etc.
+
+## Vector Database (Knowledge Base)
+
+All moot discussions are automatically archived in a local ChromaDB vector database. You can also index external articles and save personal notes.
+
+### How it works
+
+- **Automatic archiving**: Every completed moot is stored with full text and per-speaker chunks
+- **Semantic search**: Uses `sentence-transformers/all-MiniLM-L6-v2` for embeddings (384 dimensions)
+- **Local storage**: Everything stored in `chroma_db/` directory — no external services
+- **Bob summarizes**: Search results are summarized by Bob for easy consumption
+
+### What gets stored
+
+| Collection | Content |
+|------------|---------|
+| `moot_archive` | All completed moots (full discussion + individual speaker chunks) |
+| `external_docs` | Indexed articles from URLs or manual text entries |
+| `personal_notes` | Notes saved via `!memory` command |
+
+### Usage examples
+
+```
+!lookup quantum computing applications
+# Bob searches archives and summarizes relevant discussions
+
+!index https://arxiv.org/abs/quantum-paper
+# Fetches and indexes the article
+
+!memory Always backup before deploying on Friday
+# Saves a personal reminder
+
+!stats
+# Shows document counts for each collection
+```
+
+### Upgrade instructions
+
+If you're upgrading from an older version:
+
+```bash
+# Stop the bot
+# Update dependencies
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Add CHROMA_PERSIST_DIR to .env (optional, defaults to ./chroma_db)
+cp .env.example .env
+
+# Start the bot — vector store initializes automatically
+python3 discord_bot.py
+```
+
+The embedding model (`all-MiniLM-L6-v2`) downloads automatically on first use (~90MB).

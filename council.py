@@ -220,3 +220,20 @@ async def run_discussion(
             yield (CHAIRMAN_CONFIG, eval_text)
 
     yield (None, DISCUSSION_DONE)
+
+
+async def export_discussion_text(history: List[Dict]) -> str:
+    """Export discussion history as plain text for vector storage."""
+    lines = []
+    for entry in history:
+        lines.append(f"[{entry['speaker']}]: {entry['text']}")
+    return "\n\n".join(lines)
+
+
+def split_by_speaker(history: List[Dict]) -> List[Tuple[str, Dict]]:
+    """Return list of (chunk_text, entry) tuples for per-speaker indexing."""
+    chunks = []
+    for entry in history:
+        chunk_text = f"[{entry['speaker']}]: {entry['text']}"
+        chunks.append((chunk_text, entry))
+    return chunks

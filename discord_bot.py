@@ -6,6 +6,7 @@ appears as a distinct user in Discord.
 
 import asyncio
 import logging
+import os
 import re
 import sys
 from html.parser import HTMLParser
@@ -25,7 +26,9 @@ from config import (
     WEBHOOK_URLS,
     AgentConfig,
 )
-from council import DISCUSSION_DONE, run_discussion, summarize_article
+from council import DISCUSSION_DONE, run_discussion, summarize_article, export_discussion_text, split_by_speaker
+
+from vector_store import VectorStore
 
 load_dotenv()
 
@@ -97,6 +100,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Track active discussions so we don't run two at once in the same channel
 _active_discussion: bool = False
 
+# Vector database for knowledge base
+vector_db: Optional[VectorStore] = None
+
 
 # ─── Webhook sending ──────────────────────────────────────────────────────────
 
@@ -167,6 +173,7 @@ async def run_council_discussion(
 ) -> None:
     global _active_discussion
     _active_discussion = True
+    discussion_history = []
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -189,8 +196,30 @@ async def run_council_discussion(
                 if text == DISCUSSION_DONE:
                     break
 
+                # Track history for archiving
+                if agent:
+                    discussion_history.append({"speaker": agent.name, "text": text})
+
                 await send_agent_message(session, channel, agent, text)
                 await asyncio.sleep(INTER_MESSAGE_DELAY)
+
+        # Auto-archive the moot
+        if vector_db and discussion_history:
+            try:
+                from datetime import datetime
+                moot_id = f"moot_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                participants = list(set(entry["speaker"] for entry in discussion_history))
+                
+                await vector_db.archive_moot(
+                    moot_id=moot_id,
+                    topic=topic,
+                    discussion_text="",
+                    participants=participants,
+                    history=discussion_history
+                )
+                log.info("Archived moot %s", moot_id)
+            except Exception as e:
+                log.error("Failed to archive moot: %s", e)
 
         # Ping the user when done
         await channel.send(
@@ -209,11 +238,23 @@ async def run_council_discussion(
 
 @bot.event
 async def on_ready() -> None:
+    global vector_db
     log.info("We are Legion. We are Bob.")
     log.info("Logged in as %s (id=%d)", bot.user, bot.user.id)
     log.info("Watching channel id=%d", DISCORD_CHANNEL_ID)
     webhooks_configured = sum(1 for v in WEBHOOK_URLS.values() if v)
     log.info("Webhooks configured: %d / %d", webhooks_configured, len(WEBHOOK_URLS))
+    
+    persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
+    try:
+        vector_db = VectorStore(persist_dir)
+        stats = vector_db.get_stats()
+        total_docs = sum(s["count"] for s in stats.values())
+        log.info("Vector store initialized with %d total documents", total_docs)
+    except Exception as e:
+        log.error("Failed to initialize vector store: %s", e)
+        vector_db = None
+    
     channel = bot.get_channel(DISCORD_CHANNEL_ID)
     if channel:
         await channel.send("*We are Legion. We are Bob.* — Replicants online and standing by.")
@@ -321,6 +362,101 @@ async def list_agents(ctx: commands.Context) -> None:
         hook = "✓ webhook" if WEBHOOK_URLS.get(cfg.name) else "✗ no webhook"
         lines.append(f"**{cfg.name}** → `{cfg.base_url}` ({hook})")
     await ctx.send("**Active replicants:**\n" + "\n".join(lines))
+
+
+@bot.command(name="lookup")
+async def lookup(ctx: commands.Context, *, query: str) -> None:
+    """Search the knowledge base: !lookup <question or topic>"""
+    if not vector_db:
+        await ctx.send("⚠️ Vector store not initialized. Check logs for errors.")
+        return
+    
+    await ctx.send(f"*Bob is searching the archives for: **{query}**...*")
+    
+    try:
+        results = await vector_db.lookup(query, top_k=5)
+        if not results:
+            await ctx.send("Bob found nothing relevant in the archives.")
+            return
+        
+        summary = await vector_db.summarize_findings(query, results)
+        await send_agent_message(ctx.channel, CHAIRMAN_CONFIG, summary)
+    except Exception as e:
+        log.error("Lookup failed: %s", e)
+        await ctx.send(f"⚠️ Search error: `{e}`")
+
+
+@bot.command(name="index")
+async def index(ctx: commands.Context, *, url_or_text: str) -> None:
+    """Index a URL or text for future lookups: !index <url> or !index <text>"""
+    if not vector_db:
+        await ctx.send("⚠️ Vector store not initialized. Check logs for errors.")
+        return
+    
+    await ctx.send("*Bob is adding this to the archives...*")
+    
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            if url_or_text.startswith("http"):
+                raw_text = await _fetch_article_text(session, url_or_text)
+                source = url_or_text
+            else:
+                raw_text = url_or_text
+                source = "manual-entry"
+        
+        from datetime import datetime
+        doc_id = f"doc_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        chunk_count = await vector_db.add_document(
+            doc_id=doc_id,
+            source=source,
+            content=raw_text,
+            metadata={"indexed_by": ctx.author.name}
+        )
+        
+        await ctx.send(f"*Bob:* Got it. {len(raw_text)} characters indexed ({chunk_count} chunks).")
+    except Exception as e:
+        log.error("Index failed: %s", e)
+        await ctx.send(f"⚠️ Indexing error: `{e}`")
+
+
+@bot.command(name="memory")
+async def memory(ctx: commands.Context, *, text: str) -> None:
+    """Save a personal note or fact: !memory <text>"""
+    if not vector_db:
+        await ctx.send("⚠️ Vector store not initialized. Check logs for errors.")
+        return
+    
+    try:
+        from datetime import datetime
+        note_id = f"note_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        await vector_db.add_personal_note(
+            note_id=note_id,
+            content=text,
+            tags=[ctx.author.name]
+        )
+        await ctx.send(f"*Bob:* Noted. I'll remember this for future lookups.")
+    except Exception as e:
+        log.error("Memory save failed: %s", e)
+        await ctx.send(f"⚠️ Save error: `{e}`")
+
+
+@bot.command(name="stats")
+async def stats(ctx: commands.Context) -> None:
+    """Show vector database statistics."""
+    if not vector_db:
+        await ctx.send("⚠️ Vector store not initialized.")
+        return
+    
+    try:
+        db_stats = vector_db.get_stats()
+        lines = ["**Knowledge Base Stats:**"]
+        for collection, stats in db_stats.items():
+            lines.append(f"• {collection}: {stats['count']} documents")
+        await ctx.send("\n".join(lines))
+    except Exception as e:
+        log.error("Stats failed: %s", e)
+        await ctx.send(f"⚠️ Error: `{e}`")
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
