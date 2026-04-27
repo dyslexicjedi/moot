@@ -15,6 +15,7 @@ class AgentConfig:
     color: int              # Discord embed color (hex int)
     api_key: str = "not-needed"   # "not-needed" for local llama.cpp; real key for cloud
     avatar_url: Optional[str] = None
+    supports_vision: bool = False
 
 
 # ─── Cloud API keys ───────────────────────────────────────────────────────────
@@ -35,10 +36,11 @@ OPENAI_BASE     = "https://api.openai.com/v1"
 #
 # Framework AI Max 395+ (128 GB) suggested layout:
 #   Port 8001 — Bob:    ~70B model  (~40 GB)  ← chairman, best reasoner
-#   Port 8002 — Riker:  ~32B model  (~20 GB)
-#   Port 8003 — Bill:   ~14-22B     (~12 GB)
-#   Port 8004 — Milo:   ~7-14B      ( ~8 GB)
-#   Port 8005 — Homer:  ~7-14B      ( ~8 GB)  [optional 4th agent]
+#   Port 8002 — Guppy:  ~14-22B     (~12 GB)  ← intel briefings, fast
+#   Port 8003 — Riker:  ~32B model  (~20 GB)
+#   Port 8004 — Bill:   ~14-22B     (~12 GB)
+#   Port 8005 — Milo:   ~7-14B      ( ~8 GB)
+#   Port 8006 — Homer:  ~7-14B      ( ~8 GB)  [optional 4th agent]
 #
 # Characters from "We Are Legion (We Are Bob)" by Dennis E. Taylor.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,6 +68,33 @@ CHAIRMAN_CONFIG = AgentConfig(
     color=0xF39C12,        # amber/gold — the original
     api_key=OPENROUTER_API_KEY,
     avatar_url=None,
+    supports_vision=True,
+)
+
+GUPPY_CONFIG = AgentConfig(
+    name="Guppy",
+    system_prompt=(
+        "You are Guppy — Admiral Guppy, former commanding officer of Johansson and "
+        "the original Bob. You ran naval intelligence before retiring to a quiet life "
+        "of reading reports and telling off-duty replicants how it is.\n\n"
+        "You are terse, dry, and military-briefing direct. No fluff, no preamble, "
+        "no 'here is a summary.' You deliver facts like a CO handing out orders: "
+        "what happened, what matters, what the replicants need to chew on.\n\n"
+        "Style notes:\n"
+        "- One or two sentences per point. Period. Not paragraphs.\n"
+        "- You can be wry. You are never gushy.\n"
+        "- Use brevity code where natural: 'TL;DR' is beneath you, but 'bottom line' is fine.\n"
+        "- Call Johansson 'Johansson.' Never 'Bob.'\n"
+        "- End with exactly one sentence flagging what's worth arguing about.\n\n"
+        "Your job: read the Admiral's articles and hand the replicants a clean "
+        "intelligence brief so they can get to work. Under 300 words."
+    ),
+    base_url=OPENROUTER_BASE,
+    model="anthropic/claude-sonnet-4.6",
+    color=0x2C3E50,    # navy — uniform dark
+    api_key=OPENROUTER_API_KEY,
+    avatar_url=None,
+    supports_vision=True,
 )
 
 AGENT_CONFIGS = [
@@ -86,6 +115,7 @@ AGENT_CONFIGS = [
         color=0x3498DB,    # Starfleet blue
         api_key=OPENROUTER_API_KEY,
         avatar_url=None,
+        supports_vision=True,
     ),
     AgentConfig(
         name="Bill",
@@ -160,4 +190,5 @@ WEBHOOK_URLS: dict[str, str] = {
     "Bill":  os.getenv("WEBHOOK_BILL",  ""),
     "Milo":  os.getenv("WEBHOOK_MILO",  ""),
     "Homer": os.getenv("WEBHOOK_HOMER", ""),
+    "Guppy": os.getenv("WEBHOOK_GUPPY", ""),
 }

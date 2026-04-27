@@ -6,11 +6,11 @@ any other interface) can handle delivery however it wants.
 
 import asyncio
 import re
-from typing import AsyncGenerator, List, Dict, Tuple
+from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
 from openai import AsyncOpenAI
 
-from config import AgentConfig, AGENT_CONFIGS, CHAIRMAN_CONFIG, MAX_ROUNDS, MAX_TOKENS, CHAIRMAN_MAX_TOKENS
+from config import AgentConfig, AGENT_CONFIGS, CHAIRMAN_CONFIG, GUPPY_CONFIG, MAX_ROUNDS, MAX_TOKENS, CHAIRMAN_MAX_TOKENS
 
 _ARTICLE_TRUNCATE = 12_000  # chars — keeps Bob's context reasonable
 
@@ -29,15 +29,47 @@ async def _chat(
     messages: List[Dict],
     max_tokens: int,
     temperature: float = 0.75,
+    image_data: Optional[List[Dict]] = None,
 ) -> str:
     try:
-        resp = await client.chat.completions.create(
-            model=config.model,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        return resp.choices[0].message.content.strip()
+        if image_data and config.supports_vision:
+            content_parts = []
+            for img in image_data:
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{img['mime_type']};base64,{img['data']}",
+                        "detail": "high",
+                    },
+                })
+            for m in messages:
+                if m["role"] == "user":
+                    text = m["content"] if isinstance(m["content"], str) else str(m["content"])
+                    content_parts.append({"type": "text", "text": text})
+            api_messages: List[Dict] = []
+            for m in messages:
+                if m["role"] == "system":
+                    api_messages.append({"role": "system", "content": m["content"]})
+                elif m["role"] in ("user", "assistant"):
+                    pass
+            api_messages.append({"role": "user", "content": content_parts})
+            resp = await client.chat.completions.create(
+                model=config.model,
+                messages=api_messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        else:
+            resp = await client.chat.completions.create(
+                model=config.model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        content = resp.choices[0].message.content
+        if not content:
+            return f"[{config.name} returned an empty response]"
+        return content.strip()
     except Exception as exc:
         return f"[{config.name} encountered an error: {exc}]"
 
@@ -50,6 +82,7 @@ async def _agent_respond(
     round_num: int,
     max_rounds: int,
     context_note: str = "",
+    image_data: Optional[List[Dict]] = None,
 ) -> str:
     system = agent.system_prompt
     user_parts = [
@@ -74,7 +107,7 @@ async def _agent_respond(
 
     messages.append({"role": "user", "content": "\n".join(user_parts)})
 
-    return await _chat(client, agent, messages, MAX_TOKENS)
+    return await _chat(client, agent, messages, MAX_TOKENS, image_data=image_data)
 
 
 async def _chairman_open(
@@ -82,6 +115,7 @@ async def _chairman_open(
     topic: str,
     agent_names: List[str],
     context_note: str = "",
+    image_data: Optional[List[Dict]] = None,
 ) -> str:
     names = ", ".join(agent_names)
     prompt = (
@@ -95,7 +129,7 @@ async def _chairman_open(
         {"role": "system", "content": CHAIRMAN_CONFIG.system_prompt},
         {"role": "user",   "content": prompt},
     ]
-    return await _chat(client, CHAIRMAN_CONFIG, messages, CHAIRMAN_MAX_TOKENS, temperature=0.4)
+    return await _chat(client, CHAIRMAN_CONFIG, messages, CHAIRMAN_MAX_TOKENS, temperature=0.4, image_data=image_data)
 
 
 async def _chairman_evaluate(
@@ -156,26 +190,27 @@ async def _chairman_evaluate(
 
 
 async def summarize_article(raw_text: str) -> str:
-    """Bob reads raw article text and returns a briefing for the moot."""
-    client = _make_client(CHAIRMAN_CONFIG)
+    """Guppy reads raw article text and returns a briefing for the moot."""
+    client = _make_client(GUPPY_CONFIG)
     truncated = raw_text[:_ARTICLE_TRUNCATE]
     if len(raw_text) > _ARTICLE_TRUNCATE:
         truncated += "\n\n[... article truncated ...]"
     messages = [
-        {"role": "system", "content": CHAIRMAN_CONFIG.system_prompt},
+        {"role": "system", "content": GUPPY_CONFIG.system_prompt},
         {"role": "user", "content": (
-            "Before we open the moot, read this article and brief the replicants. "
-            "Hit the key points, the main argument, and anything worth debating. "
-            "Under 300 words — we'll dig in once the moot starts.\n\n"
-            f"ARTICLE:\n{truncated}"
+            "Intelligence report for the replicants. Read this and hand out a clean "
+            "brief: key points, main argument, anything worth arguing about. "
+            "Under 300 words — Johansson's waiting on this.\n\n"
+            f"INTELLIGENCE:\n{truncated}"
         )},
     ]
-    return await _chat(client, CHAIRMAN_CONFIG, messages, 450, temperature=0.3)
+    return await _chat(client, GUPPY_CONFIG, messages, 450, temperature=0.3)
 
 
 async def run_discussion(
     topic: str,
     context_note: str = "",
+    image_data: Optional[List[Dict]] = None,
 ) -> AsyncGenerator[Tuple[AgentConfig, str], None]:
     """
     Async generator that yields (AgentConfig, message_text) for every
@@ -189,7 +224,7 @@ async def run_discussion(
 
     # ── Opening ──────────────────────────────────────────────────────────────
     agent_names = [cfg.name for _, cfg in agent_clients]
-    opening = await _chairman_open(chairman_client, topic, agent_names, context_note)
+    opening = await _chairman_open(chairman_client, topic, agent_names, context_note, image_data)
     history.append({"speaker": CHAIRMAN_CONFIG.name, "text": opening})
     yield (CHAIRMAN_CONFIG, opening)
 
@@ -202,7 +237,7 @@ async def run_discussion(
         for client, agent in agent_clients:
             await asyncio.sleep(0)  # yield control so Discord can send queued messages
             response = await _agent_respond(
-                client, agent, topic, history, round_num, MAX_ROUNDS, context_note
+                client, agent, topic, history, round_num, MAX_ROUNDS, context_note, image_data
             )
             history.append({"speaker": agent.name, "text": response})
             yield (agent, response)

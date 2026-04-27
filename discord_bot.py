@@ -5,6 +5,7 @@ appears as a distinct user in Discord.
 """
 
 import asyncio
+import base64
 import logging
 import os
 import re
@@ -22,6 +23,7 @@ from config import (
     CHAIRMAN_CONFIG,
     DISCORD_CHANNEL_ID,
     DISCORD_TOKEN,
+    GUPPY_CONFIG,
     INTER_MESSAGE_DELAY,
     WEBHOOK_URLS,
     AgentConfig,
@@ -76,7 +78,13 @@ def _extract_url(text: str) -> tuple[Optional[str], str]:
 
 
 async def _fetch_article_text(session: aiohttp.ClientSession, url: str) -> str:
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; MootBot/1.0)"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/125.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
     timeout = aiohttp.ClientTimeout(total=20)
     async with session.get(url, headers=headers, timeout=timeout) as resp:
         resp.raise_for_status()
@@ -91,6 +99,31 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 log = logging.getLogger("council-bot")
+
+
+# ─── Image handling ──────────────────────────────────────────────────────────
+
+async def _download_and_encode_image(
+    session: aiohttp.ClientSession, url: str, filename: str,
+) -> Optional[dict]:
+    """Download an image from a URL and return a dict ready for API use."""
+    try:
+        async with session.get(url) as resp:
+            raw = await resp.read()
+    except Exception as exc:
+        log.warning("Failed to download image %s: %s", filename, exc)
+        return None
+
+    mime_map = {
+        "jpg": "image/jpeg", "jpeg": "image/jpeg",
+        "png": "image/png", "gif": "image/gif",
+        "webp": "image/webp", "bmp": "image/bmp",
+    }
+    ext = filename.lower().rsplit(".", 1)[-1]
+    mime_type = mime_map.get(ext, "image/png")
+
+    encoded = base64.b64encode(raw).decode("ascii")
+    return {"mime_type": mime_type, "data": encoded}
 
 # ─── Discord setup ────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
@@ -170,6 +203,7 @@ async def run_council_discussion(
     trigger_user_id: int,
     context_note: str = "",
     url: Optional[str] = None,
+    image_data: Optional[list[dict]] = None,
 ) -> None:
     global _active_discussion
     _active_discussion = True
@@ -180,19 +214,19 @@ async def run_council_discussion(
             if url:
                 await send_agent_message(
                     session, channel, CHAIRMAN_CONFIG,
-                    "*Stand by — pulling up the article...*"
+                    "*Guppy, pull up that article and give me a brief.*"
                 )
                 try:
                     raw_text = await _fetch_article_text(session, url)
                     summary = await summarize_article(raw_text)
-                    await send_agent_message(session, channel, CHAIRMAN_CONFIG, summary)
+                    await send_agent_message(session, channel, GUPPY_CONFIG, summary)
                     await asyncio.sleep(INTER_MESSAGE_DELAY)
-                    context_note = f"Bob has pre-read the article and briefed the replicants:\n\n{summary}"
+                    context_note = f"Bob tasked Guppy to review the article. Guppy's brief:\n\n{summary}"
                 except Exception as exc:
                     log.error("Article fetch/summarize failed: %s", exc)
                     await channel.send(f"⚠️ Couldn't read the article: `{exc}` — proceeding without it.")
 
-            async for agent, text in run_discussion(topic, context_note):
+            async for agent, text in run_discussion(topic, context_note, image_data):
                 if text == DISCUSSION_DONE:
                     break
 
@@ -293,21 +327,40 @@ async def on_message(message: discord.Message) -> None:
     raw = message.content.replace("!moot", "").strip()
     context_note = ""
     url, topic = _extract_url(raw)
+    image_data = None
 
     if message.attachments:
-        image_urls = [a.url for a in message.attachments if _is_image(a.filename)]
-        if image_urls:
-            context_note = "The user also shared an image: " + ", ".join(image_urls)
+        image_files = [a for a in message.attachments if _is_image(a.filename)]
+        if image_files:
+            context_note = "The user also shared image(s)."
             if not topic:
-                topic = "Discuss the attached image."
+                topic = "Discuss the attached image(s)."
 
     if not topic and not url:
         return  # Empty message with no content — ignore
 
     await message.add_reaction("⏳")
-    asyncio.create_task(
-        run_council_discussion(message.channel, topic, message.author.id, context_note, url=url)
-    )
+
+    async def _start_discussion():
+        nonlocal image_data
+        if image_files:
+            async with aiohttp.ClientSession() as img_session:
+                encoded = []
+                for img_file in image_files:
+                    result = await _download_and_encode_image(
+                        img_session, img_file.url, img_file.filename,
+                    )
+                    if result:
+                        encoded.append(result)
+                image_data = encoded or None
+        asyncio.create_task(
+            run_council_discussion(
+                message.channel, topic, message.author.id,
+                context_note, url=url, image_data=image_data,
+            )
+        )
+
+    asyncio.create_task(_start_discussion())
 
 
 def _is_image(filename: str) -> bool:
@@ -328,7 +381,7 @@ async def stop_discussion(ctx: commands.Context) -> None:
 
 
 @bot.command(name="discuss", aliases=["moot"])
-async def force_discuss(ctx: commands.Context, *, topic: str) -> None:
+async def force_discuss(ctx: commands.Context, *, topic: Optional[str] = None) -> None:
     """Manually trigger a moot: !moot <topic>  (alias: !discuss)"""
     global _active_discussion
     if ctx.channel.id != DISCORD_CHANNEL_ID:
@@ -338,11 +391,33 @@ async def force_discuss(ctx: commands.Context, *, topic: str) -> None:
         await ctx.send("A moot is already running. Use `!stop` first.")
         return
 
-    url, topic = _extract_url(topic)
-    await ctx.message.add_reaction("⏳")
-    asyncio.create_task(
-        run_council_discussion(ctx.channel, topic, ctx.author.id, url=url)
-    )
+    raw = topic or ""
+    url, topic = _extract_url(raw)
+    if not topic:
+        topic = "Discuss the attached image."
+
+    await ctx.send("⏳")
+
+    async def _start_discussion():
+        image_data = None
+        image_files = [a for a in ctx.message.attachments if _is_image(a.filename)]
+        if image_files:
+            async with aiohttp.ClientSession() as img_session:
+                encoded = []
+                for img_file in image_files:
+                    result = await _download_and_encode_image(
+                        img_session, img_file.url, img_file.filename,
+                    )
+                    if result:
+                        encoded.append(result)
+                image_data = encoded or None
+        asyncio.create_task(
+            run_council_discussion(
+                ctx.channel, topic, ctx.author.id, url=url, image_data=image_data,
+            )
+        )
+
+    asyncio.create_task(_start_discussion())
 
 
 @bot.command(name="status")
