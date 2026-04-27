@@ -24,6 +24,7 @@ CTX=4096
 
 # Model paths — update these to your actual .gguf file locations
 MODEL_BOB="/path/to/models/bob-70b-q4_k_m.gguf"        # chairman — best model you have
+MODEL_GUPPY="/path/to/models/guppy-22b-q4_k_m.gguf"    # intel briefings — fast model
 MODEL_RIKER="/path/to/models/riker-32b-q4_k_m.gguf"
 MODEL_BILL="/path/to/models/bill-22b-q4_k_m.gguf"
 MODEL_MILO="/path/to/models/milo-14b-q4_k_m.gguf"
@@ -58,10 +59,11 @@ start_server() {
 }
 
 start_server "Bob"   8001 "$MODEL_BOB"
-start_server "Riker" 8002 "$MODEL_RIKER"
-start_server "Bill"  8003 "$MODEL_BILL"
-start_server "Milo"  8004 "$MODEL_MILO"
-# start_server "Homer" 8005 "$MODEL_HOMER"
+start_server "Guppy" 8002 "$MODEL_GUPPY"
+start_server "Riker" 8003 "$MODEL_RIKER"
+start_server "Bill"  8004 "$MODEL_BILL"
+start_server "Milo"  8005 "$MODEL_MILO"
+# start_server "Homer" 8006 "$MODEL_HOMER"
 
 echo ""
 echo "All servers started. Waiting 10 s for models to load..."
@@ -69,7 +71,7 @@ sleep 10
 
 echo ""
 echo "Health check:"
-for port in 8001 8002 8003 8004; do
+for port in 8001 8002 8003 8004 8005; do
     if curl -sf "http://127.0.0.1:${port}/health" > /dev/null 2>&1; then
         echo "  Port $port — OK"
     else

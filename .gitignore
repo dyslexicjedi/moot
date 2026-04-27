@@ -11,3 +11,6 @@ venv/
 # llama.cpp server logs and PIDs (created by start_servers.sh)
 logs/
 *.pid
+
+#DB
+chroma_db/

@@ -1,11 +1,11 @@
 # Moot
 
-A multi-agent Discord bot where a council of AI replicants — named after characters from Dennis E. Taylor's *Bobiverse* series — discuss topics, debate ideas, and reach a consensus. Post a topic or drop a meme in a private Discord channel and watch Bob, Riker, Bill, Milo, and Homer hash it out. Bob chairs the moot and calls it closed with a **BLAAATTT**.
+A multi-agent Discord bot where a council of AI replicants — named after characters from Dennis E. Taylor's *Bobiverse* series — discuss topics, debate ideas, and reach a consensus. Post a topic or drop a meme in a private Discord channel and watch Bob, Riker, Bill, Milo, and Homer hash it out. Bob chairs the moot and calls it closed with a **BLAAATTT**. Drop a link and Guppy runs the intelligence briefing.
 
 ## How it works
 
-1. You post anything in the designated Discord channel — a question, a topic, an image
-2. Bob opens the moot and introduces the topic
+1. You post anything in the designated Discord channel — a question, a topic, an image, or a link
+2. If you drop a link, Guppy runs the intelligence briefing. Otherwise, Bob opens the moot and introduces the topic
 3. Each replicant takes a turn sharing their perspective (up to 3 rounds)
 4. Bob evaluates after each round and decides whether to continue or conclude
 5. Bob closes with **BLAAATTT** and a summary, then @ mentions you
@@ -15,6 +15,7 @@ Each replicant has a distinct personality:
 | Replicant | Role | Style |
 |-----------|------|-------|
 | **Bob** | Chair | Pragmatic engineer, sarcastic, keeps the moot moving |
+| **Guppy** | Intel | Admiral, terse, dry — runs the article briefing |
 | **Riker** | Agent | Decisive, action-oriented, pushes for conclusions |
 | **Bill** | Agent | Systems thinker, asks "what breaks first?" |
 | **Milo** | Agent | Philosophical, surfaces what others gloss over |

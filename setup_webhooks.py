@@ -23,8 +23,8 @@ TOKEN       = os.getenv("DISCORD_BOT_TOKEN", "")
 CHANNEL_ID  = int(os.getenv("DISCORD_CHANNEL_ID", "0"))
 
 # Agent names we need webhooks for
-from config import AGENT_CONFIGS, CHAIRMAN_CONFIG  # noqa: E402
-ALL_AGENTS = [CHAIRMAN_CONFIG] + list(AGENT_CONFIGS)
+from config import AGENT_CONFIGS, CHAIRMAN_CONFIG, GUPPY_CONFIG  # noqa: E402
+ALL_AGENTS = [CHAIRMAN_CONFIG, GUPPY_CONFIG] + list(AGENT_CONFIGS)
 
 
 def _update_env_file(key: str, value: str, env_path: str = ".env") -> None:
