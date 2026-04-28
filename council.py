@@ -6,6 +6,7 @@ any other interface) can handle delivery however it wants.
 
 import asyncio
 import re
+import time
 from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
 from openai import AsyncOpenAI
@@ -255,6 +256,55 @@ async def run_discussion(
             yield (CHAIRMAN_CONFIG, eval_text)
 
     yield (None, DISCUSSION_DONE)
+
+
+async def guppy_brief_health(configs: List[AgentConfig], results: List[Dict]) -> str:
+    """Ask Guppy to narrate health check results in character."""
+    lines = ["System diagnostic. All replicants stand by.", "", "STATUS REPORT:"]
+    for cfg, result in zip(configs, results):
+        status = result["status"].upper()
+        if result["latency_ms"] is not None:
+            detail = f"{result['latency_ms']}ms — {cfg.model}"
+            if result["status"] == "warn":
+                detail += " (slow)"
+        else:
+            detail = result["detail"] or "unknown error"
+        lines.append(f"- {cfg.name}: {status} {detail}")
+    lines += ["", "Deliver your assessment to the replicants."]
+
+    client = _make_client(GUPPY_CONFIG)
+    messages = [
+        {"role": "system", "content": GUPPY_CONFIG.system_prompt},
+        {"role": "user", "content": "\n".join(lines)},
+    ]
+    return await _chat(client, GUPPY_CONFIG, messages, max_tokens=300, temperature=0.5)
+
+
+async def check_agent_health(config: AgentConfig, timeout: float = 5.0) -> Dict:
+    """Ping one agent endpoint and return {"status", "latency_ms", "detail"}."""
+    client = _make_client(config)
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Respond with only the word OK."},
+    ]
+    start = time.monotonic()
+    try:
+        await asyncio.wait_for(
+            client.chat.completions.create(
+                model=config.model,
+                messages=messages,
+                max_tokens=5,
+                temperature=0.0,
+            ),
+            timeout=timeout,
+        )
+        latency_ms = int((time.monotonic() - start) * 1000)
+        status = "warn" if latency_ms > 2000 else "ok"
+        return {"status": status, "latency_ms": latency_ms, "detail": ""}
+    except asyncio.TimeoutError:
+        return {"status": "error", "latency_ms": None, "detail": f"Timeout after {timeout:.0f}s"}
+    except Exception as exc:
+        return {"status": "error", "latency_ms": None, "detail": str(exc)[:80]}
 
 
 async def export_discussion_text(history: List[Dict]) -> str:

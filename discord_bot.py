@@ -28,7 +28,7 @@ from config import (
     WEBHOOK_URLS,
     AgentConfig,
 )
-from council import DISCUSSION_DONE, run_discussion, summarize_article, export_discussion_text, split_by_speaker
+from council import DISCUSSION_DONE, check_agent_health, guppy_brief_health, run_discussion, summarize_article, export_discussion_text, split_by_speaker
 
 from vector_store import VectorStore
 
@@ -439,6 +439,56 @@ async def list_agents(ctx: commands.Context) -> None:
     await ctx.send("**Active replicants:**\n" + "\n".join(lines))
 
 
+@bot.command(name="health")
+async def health(ctx: commands.Context) -> None:
+    """Check API connectivity for all agents: !health"""
+    await ctx.send("*Running health checks...*")
+
+    all_configs = [CHAIRMAN_CONFIG, GUPPY_CONFIG] + AGENT_CONFIGS
+    results = await asyncio.gather(*[check_agent_health(cfg) for cfg in all_configs])
+
+    lines = ["**Health Check:**"]
+    for cfg, result in zip(all_configs, results):
+        status = result["status"]
+        latency_ms = result["latency_ms"]
+        detail = result["detail"]
+
+        if cfg == CHAIRMAN_CONFIG:
+            role = " (chairman)"
+        elif cfg == GUPPY_CONFIG:
+            role = " (intel)"
+        else:
+            role = ""
+
+        if status == "ok":
+            icon = "✅"
+            suffix = f"({latency_ms}ms)"
+        elif status == "warn":
+            icon = "⚠️"
+            suffix = f"({latency_ms}ms) — slow response"
+        else:
+            icon = "❌"
+            suffix = f"— {detail}"
+
+        lines.append(f"• **{cfg.name}**{role} → {icon} {suffix} — `{cfg.model}`")
+
+    await ctx.send("\n".join(lines))
+
+
+@bot.command(name="guppy")
+async def guppy_diagnostics(ctx: commands.Context) -> None:
+    """Get Guppy's system diagnostic briefing: !guppy"""
+    await ctx.send("*Guppy, run diagnostics.*")
+
+    all_configs = [CHAIRMAN_CONFIG, GUPPY_CONFIG] + AGENT_CONFIGS
+    results = await asyncio.gather(*[check_agent_health(cfg) for cfg in all_configs])
+
+    narration = await guppy_brief_health(all_configs, results)
+
+    async with aiohttp.ClientSession() as session:
+        await send_agent_message(session, ctx.channel, GUPPY_CONFIG, narration)
+
+
 @bot.command(name="lookup")
 async def lookup(ctx: commands.Context, *, query: str) -> None:
     """Search the knowledge base: !lookup <question or topic>"""
@@ -455,7 +505,8 @@ async def lookup(ctx: commands.Context, *, query: str) -> None:
             return
         
         summary = await vector_db.summarize_findings(query, results)
-        await send_agent_message(ctx.channel, CHAIRMAN_CONFIG, summary)
+        async with aiohttp.ClientSession() as session:
+            await send_agent_message(session, ctx.channel, CHAIRMAN_CONFIG, summary)
     except Exception as e:
         log.error("Lookup failed: %s", e)
         await ctx.send(f"⚠️ Search error: `{e}`")
