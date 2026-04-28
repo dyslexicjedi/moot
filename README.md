@@ -117,6 +117,7 @@ You'll see *"We are Legion. We are Bob."* in your Discord channel when it's read
 | `!index <url\|text>` | Index an article URL or raw text for future lookups |
 | `!memory <fact>` | Save a personal note or fact to remember |
 | `!stats` | Show knowledge base statistics |
+| `!guppy` | Run checks on the replicants |
 
 Or just post anything in the channel — any message automatically starts a moot.
 
