@@ -111,7 +111,7 @@ AGENT_CONFIGS = [
             "Keep responses under 250 words."
         ),
         base_url=OPENROUTER_BASE,
-        model="qwen/qwen3.6-plus",
+        model="anthropic/claude-haiku-4-5",
         color=0x3498DB,    # Starfleet blue
         api_key=OPENROUTER_API_KEY,
         avatar_url=None,
@@ -148,7 +148,7 @@ AGENT_CONFIGS = [
             "surface what's being glossed over. Keep responses under 250 words."
         ),
         base_url=OPENROUTER_BASE,
-        model="deepseek/deepseek-v3.2",
+        model="mistralai/mistral-small-3.1-24b-instruct",
         api_key=OPENROUTER_API_KEY,
         color=0x1ABC9C,    # teal — thoughtful, calm
         avatar_url=None,

@@ -258,6 +258,38 @@ async def run_discussion(
     yield (None, DISCUSSION_DONE)
 
 
+async def guppy_brief_topic(topic: str) -> str:
+    """Guppy gives a quick intel brief on a plain-text topic (no article to read)."""
+    client = _make_client(GUPPY_CONFIG)
+    messages = [
+        {"role": "system", "content": GUPPY_CONFIG.system_prompt},
+        {"role": "user", "content": (
+            "Intel brief requested by the moot chair. "
+            "Give the replicants a tactical overview of this topic: "
+            "key factions, main tensions, bottom line. Under 250 words.\n\n"
+            f"TOPIC: {topic}"
+        )},
+    ]
+    return await _chat(client, GUPPY_CONFIG, messages, 400, temperature=0.35)
+
+
+async def guppy_debrief(topic: str, history: List[Dict]) -> str:
+    """Guppy delivers an after-action report on a completed moot."""
+    formatted = "\n".join(f"[{e['speaker']}]: {e['text']}" for e in history)
+    client = _make_client(GUPPY_CONFIG)
+    messages = [
+        {"role": "system", "content": GUPPY_CONFIG.system_prompt},
+        {"role": "user", "content": (
+            "Post-moot debrief. Read the transcript and give the replicants a "
+            "tight after-action report: what was decided, what was left open, "
+            "and the one thing that actually mattered. Under 250 words.\n\n"
+            f"TOPIC: {topic}\n\n"
+            f"TRANSCRIPT:\n{formatted[:8000]}"
+        )},
+    ]
+    return await _chat(client, GUPPY_CONFIG, messages, 400, temperature=0.3)
+
+
 async def guppy_brief_health(configs: List[AgentConfig], results: List[Dict]) -> str:
     """Ask Guppy to narrate health check results in character."""
     lines = ["System diagnostic. All replicants stand by.", "", "STATUS REPORT:"]

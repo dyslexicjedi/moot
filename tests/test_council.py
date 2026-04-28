@@ -21,6 +21,8 @@ from council import (
     check_agent_health,
     export_discussion_text,
     guppy_brief_health,
+    guppy_brief_topic,
+    guppy_debrief,
     run_discussion,
     split_by_speaker,
     summarize_article,
@@ -385,3 +387,68 @@ async def test_summarize_article_short_input_not_truncated():
         m["content"] for m in captured["messages"] if isinstance(m.get("content"), str)
     )
     assert "[... article truncated ...]" not in all_content
+
+
+# ─── guppy_brief_topic ────────────────────────────────────────────────────────
+
+
+async def test_guppy_brief_topic_returns_brief():
+    with patch("council._chat", new_callable=AsyncMock) as mock:
+        mock.return_value = "Bottom line: contested territory. One thing worth arguing."
+        result = await guppy_brief_topic("AI regulation")
+    assert "Bottom line" in result
+    called_config = mock.call_args[0][1]
+    assert called_config.name == "Guppy"
+
+
+async def test_guppy_brief_topic_includes_topic_in_prompt():
+    captured = {}
+
+    async def fake_chat(client, config, messages, max_tokens, temperature=0.75, image_data=None):
+        captured["messages"] = messages
+        return "Brief."
+
+    with patch("council._chat", side_effect=fake_chat):
+        await guppy_brief_topic("quantum computing ethics")
+
+    all_content = " ".join(
+        m["content"] for m in captured["messages"] if isinstance(m.get("content"), str)
+    )
+    assert "quantum computing ethics" in all_content
+
+
+# ─── guppy_debrief ────────────────────────────────────────────────────────────
+
+
+async def test_guppy_debrief_returns_report():
+    history = [
+        {"speaker": "Bob", "text": "Opening the moot on widgets."},
+        {"speaker": "Riker", "text": "Widgets are overrated."},
+        {"speaker": "Bob", "text": "BLAAATTT. Consensus: widgets have a place."},
+    ]
+    with patch("council._chat", new_callable=AsyncMock) as mock:
+        mock.return_value = "After-action: widget debate resolved. One open question remains."
+        result = await guppy_debrief("Are widgets worth it?", history)
+    assert "After-action" in result
+    called_config = mock.call_args[0][1]
+    assert called_config.name == "Guppy"
+
+
+async def test_guppy_debrief_includes_transcript_in_prompt():
+    history = [
+        {"speaker": "Riker", "text": "Unique marker text XYZ789"},
+    ]
+    captured = {}
+
+    async def fake_chat(client, config, messages, max_tokens, temperature=0.75, image_data=None):
+        captured["messages"] = messages
+        return "Brief."
+
+    with patch("council._chat", side_effect=fake_chat):
+        await guppy_debrief("test topic", history)
+
+    all_content = " ".join(
+        m["content"] for m in captured["messages"] if isinstance(m.get("content"), str)
+    )
+    assert "Unique marker text XYZ789" in all_content
+    assert "test topic" in all_content

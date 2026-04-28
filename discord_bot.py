@@ -28,7 +28,7 @@ from config import (
     WEBHOOK_URLS,
     AgentConfig,
 )
-from council import DISCUSSION_DONE, check_agent_health, guppy_brief_health, run_discussion, summarize_article, export_discussion_text, split_by_speaker
+from council import DISCUSSION_DONE, check_agent_health, guppy_brief_health, guppy_brief_topic, guppy_debrief, run_discussion, summarize_article, export_discussion_text, split_by_speaker
 
 from vector_store import VectorStore
 
@@ -133,6 +133,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Track active discussions so we don't run two at once in the same channel
 _active_discussion: bool = False
 
+# Last completed moot — used by !debrief
+_last_moot: Optional[dict] = None
+
 # Vector database for knowledge base
 vector_db: Optional[VectorStore] = None
 
@@ -205,7 +208,7 @@ async def run_council_discussion(
     url: Optional[str] = None,
     image_data: Optional[list[dict]] = None,
 ) -> None:
-    global _active_discussion
+    global _active_discussion, _last_moot
     _active_discussion = True
     discussion_history = []
 
@@ -236,6 +239,10 @@ async def run_council_discussion(
 
                 await send_agent_message(session, channel, agent, text)
                 await asyncio.sleep(INTER_MESSAGE_DELAY)
+
+        # Save last moot for !debrief
+        if discussion_history:
+            _last_moot = {"topic": topic, "history": discussion_history}
 
         # Auto-archive the moot
         if vector_db and discussion_history:
@@ -565,6 +572,83 @@ async def memory(ctx: commands.Context, *, text: str) -> None:
     except Exception as e:
         log.error("Memory save failed: %s", e)
         await ctx.send(f"⚠️ Save error: `{e}`")
+
+
+@bot.command(name="brief")
+async def brief(ctx: commands.Context, *, target: Optional[str] = None) -> None:
+    """Guppy delivers an intel brief on a URL or topic: !brief <url or topic>"""
+    if not target:
+        await ctx.send("*Guppy:* Brief on what, exactly? Give me a URL or a topic.")
+        return
+
+    await ctx.send("*Guppy, pull up that intel.*")
+
+    try:
+        url, topic = _extract_url(target)
+        async with aiohttp.ClientSession() as session:
+            if url:
+                raw_text = await _fetch_article_text(session, url)
+                brief_text = await summarize_article(raw_text)
+            else:
+                brief_text = await guppy_brief_topic(topic)
+            await send_agent_message(session, ctx.channel, GUPPY_CONFIG, brief_text)
+    except Exception as exc:
+        log.error("Brief failed: %s", exc)
+        await ctx.send(f"⚠️ Couldn't pull that intel: `{exc}`")
+
+
+@bot.command(name="debrief")
+async def debrief(ctx: commands.Context) -> None:
+    """Guppy delivers an after-action report on the last moot: !debrief"""
+    if not _last_moot:
+        await ctx.send("*Guppy:* No moot on record. Run one first.")
+        return
+
+    await ctx.send("*Guppy, give me the after-action.*")
+
+    try:
+        report = await guppy_debrief(_last_moot["topic"], _last_moot["history"])
+        async with aiohttp.ClientSession() as session:
+            await send_agent_message(session, ctx.channel, GUPPY_CONFIG, report)
+    except Exception as exc:
+        log.error("Debrief failed: %s", exc)
+        await ctx.send(f"⚠️ Debrief error: `{exc}`")
+
+
+_ORDERS_TEXT = """\
+**STANDING ORDERS** — Admiral Guppy, Intel Division
+
+**Moot operations**
+• `!moot <topic or url>` — Convene the council. Replicants debate, Johansson chairs.
+• `!discuss <topic or url>` — Alias for above.
+• `!stop` — Terminate active moot immediately.
+
+**Intel** (my department)
+• `!brief <url or topic>` — Intel brief without convening a moot.
+• `!debrief` — After-action report on the last completed moot.
+• `!guppy` — Full system diagnostic in my voice.
+
+**Knowledge base**
+• `!lookup <query>` — Johansson searches the archives.
+• `!index <url or text>` — Add a source to the knowledge base.
+• `!memory <text>` — Log a personal note for future reference.
+
+**Administrative**
+• `!health` — Raw API status on all replicants.
+• `!status` — Active moot status.
+• `!replicants` / `!agents` — List active agents and endpoints.
+• `!stats` — Knowledge base document counts.
+• `!orders` — This briefing.
+
+Bottom line: you call the moot, I brief the intel, Johansson runs it.\
+"""
+
+
+@bot.command(name="orders")
+async def orders(ctx: commands.Context) -> None:
+    """Guppy delivers the command list in military-brief style: !orders"""
+    async with aiohttp.ClientSession() as session:
+        await send_agent_message(session, ctx.channel, GUPPY_CONFIG, _ORDERS_TEXT)
 
 
 @bot.command(name="stats")
