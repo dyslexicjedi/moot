@@ -81,21 +81,27 @@ AgentConfig(
 
 Mix and match freely — each replicant is independent.
 
+<details>
+<summary>Local model servers (click to expand)</summary>
+
 **Local model servers** (Framework AI Max 395+ suggested layout, 128 GB unified memory):
 
 | Replicant | Port | Suggested size |
 |-----------|------|----------------|
 | Bob | 8001 | ~70B (~40 GB) |
-| Riker | 8002 | ~32B (~20 GB) |
-| Bill | 8003 | ~22B (~12 GB) |
-| Milo | 8004 | ~14B (~8 GB) |
-| Homer | 8005 | ~14B (~8 GB) |
+| Guppy | 8002 | ~14–22B (~12 GB) |
+| Riker | 8003 | ~32B (~20 GB) |
+| Bill | 8004 | ~26B (~14 GB) |
+| Milo | 8005 | ~7–14B ( ~8 GB) |
+| Homer | 8006 | ~7–14B ( ~8 GB) |
 
-Edit model paths in `start_servers.sh`, then:
+Edit model paths in `start_servers.sh` (ports and agents are listed above), then:
 
 ```bash
 ./start_servers.sh
 ```
+
+</details>
 
 ### 5. Run the bot
 
@@ -112,19 +118,23 @@ You'll see *"We are Legion. We are Bob."* in your Discord channel when it's read
 | `!moot <topic>` | Explicitly trigger a moot (alias: `!discuss`) |
 | `!stop` | Cancel a moot in progress |
 | `!status` | Guppy reports whether a moot is running |
+| `!health` | Raw API status on all replicants |
 | `!replicants` | List active replicants and their endpoints (alias: `!agents`) |
 | `!lookup <query>` | Search past moots and indexed docs, Bob summarizes findings |
 | `!index <url\|text>` | Index an article URL or raw text for future lookups |
 | `!memory <fact>` | Save a personal note or fact to remember |
 | `!stats` | Show knowledge base statistics |
-| `!guppy` | Run checks on the replicants |
+| `!guppy` | Full system diagnostic in Guppy's voice |
+| `!brief <url or topic>` | Intel brief without convening a moot |
+| `!debrief` | After-action report on the last moot |
+| `!orders` | Guppy's complete command list in military style |
 
 Or just post anything in the channel — any message automatically starts a moot.
 
 ## Project structure
 
 ```
-council-ai/
+moot/
 ├── config.py           # Agent personalities, model endpoints, Discord settings
 ├── council.py          # Discussion orchestration (the moot engine)
 ├── discord_bot.py      # Discord bot and command handling
